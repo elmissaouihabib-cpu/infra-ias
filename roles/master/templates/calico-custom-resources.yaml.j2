@@ -6,8 +6,7 @@ metadata:
 spec:
   calicoNetwork:
     ipPools:
-      - name: default-ipv4-ippool
-        blockSize: 26
+      - blockSize: 26
         cidr: {{ pod_network_cidr }}
         encapsulation: VXLANCrossSubnet
         natOutgoing: Enabled
