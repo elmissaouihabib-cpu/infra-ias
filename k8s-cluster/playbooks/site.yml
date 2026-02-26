@@ -1,0 +1,83 @@
+---
+# ============================================================
+# site.yml - Main entry point for the Kubernetes cluster
+# ============================================================
+
+# Global variables shared across all plays
+- name: Set cluster-wide variables
+  hosts: all
+  gather_facts: false
+  vars:
+    master_ip:        "192.168.56.10"
+    pod_network_cidr: "10.244.0.0/16"
+    service_cidr:     "10.96.0.0/12"
+  tasks:
+    - name: Propagate cluster variables
+      ansible.builtin.set_fact:
+        master_ip:        "{{ master_ip }}"
+        pod_network_cidr: "{{ pod_network_cidr }}"
+        service_cidr:     "{{ service_cidr }}"
+
+# ---- Play 1: Common setup on ALL nodes --------------------
+- name: Common system configuration
+  hosts: k8s
+  become: true
+  gather_facts: true
+  roles:
+    - common
+
+# ---- Play 2: Control-plane initialization -----------------
+- name: Initialize Kubernetes master
+  hosts: masters
+  become: true
+  gather_facts: true
+  roles:
+    - master
+
+# ---- Play 3: Join workers to the cluster ------------------
+- name: Join worker nodes
+  hosts: workers
+  become: true
+  gather_facts: true
+  roles:
+    - worker
+
+# ---- Play 4: Post-install verification --------------------
+- name: Verify cluster status
+  hosts: masters
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Wait for all nodes to become Ready
+      ansible.builtin.command: >
+        kubectl wait nodes --all
+        --for=condition=Ready
+        --timeout=300s
+      environment:
+        KUBECONFIG: /home/vagrant/.kube/config
+      register: nodes_ready
+      retries: 10
+      delay: 30
+      until: nodes_ready.rc == 0
+
+    - name: Show cluster node status
+      ansible.builtin.command: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: /home/vagrant/.kube/config
+      register: node_list
+      changed_when: false
+
+    - name: Print node list
+      ansible.builtin.debug:
+        msg: "{{ node_list.stdout_lines }}"
+
+    - name: Show running system pods
+      ansible.builtin.command: kubectl get pods -n kube-system
+      environment:
+        KUBECONFIG: /home/vagrant/.kube/config
+      register: system_pods
+      changed_when: false
+
+    - name: Print system pods
+      ansible.builtin.debug:
+        msg: "{{ system_pods.stdout_lines }}"

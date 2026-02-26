@@ -1,0 +1,137 @@
+---
+# ============================================================
+# Master Role - Applied to the control-plane node only
+# Steps:
+#   1. kubeadm init
+#   2. Configure kubectl for vagrant user & root
+#   3. Deploy Calico CNI
+#   4. Generate and store join command for workers
+# ============================================================
+
+# ---- 1. kubeadm init ----------------------------------------
+- name: Check if cluster is already initialized
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: kubeadm_init_done
+
+- name: Initialize Kubernetes control plane
+  ansible.builtin.command: >
+    kubeadm init
+    --apiserver-advertise-address={{ master_ip }}
+    --apiserver-cert-extra-sans={{ master_ip }}
+    --pod-network-cidr={{ pod_network_cidr }}
+    --service-cidr={{ service_cidr }}
+    --node-name=k8s-master
+    --ignore-preflight-errors=NumCPU,Mem
+  when: not kubeadm_init_done.stat.exists
+  register: kubeadm_init_output
+
+# ---- 2. Configure kubectl -----------------------------------
+- name: Create .kube directory for vagrant user
+  ansible.builtin.file:
+    path: /home/vagrant/.kube
+    state: directory
+    owner: vagrant
+    group: vagrant
+    mode: "0755"
+
+- name: Copy admin.conf to vagrant user's .kube/config
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /home/vagrant/.kube/config
+    remote_src: true
+    owner: vagrant
+    group: vagrant
+    mode: "0600"
+
+- name: Create .kube directory for root
+  ansible.builtin.file:
+    path: /root/.kube
+    state: directory
+    mode: "0700"
+
+- name: Copy admin.conf to root's .kube/config
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    remote_src: true
+    mode: "0600"
+
+- name: Set KUBECONFIG in vagrant user's .bashrc
+  ansible.builtin.lineinfile:
+    path: /home/vagrant/.bashrc
+    line: "export KUBECONFIG=/home/vagrant/.kube/config"
+    state: present
+
+# ---- 3. Deploy Calico CNI ----------------------------------
+- name: Check if Calico is already deployed
+  ansible.builtin.command: kubectl get ns calico-system
+  become: false
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: calico_ns
+  failed_when: false
+  changed_when: false
+
+- name: Download Calico operator manifest
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/tigera-operator.yaml
+    dest: /tmp/tigera-operator.yaml
+    mode: "0644"
+  when: calico_ns.rc != 0
+
+- name: Apply Calico operator
+  ansible.builtin.command: kubectl apply -f /tmp/tigera-operator.yaml
+  become: false
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  when: calico_ns.rc != 0
+
+- name: Deploy Calico custom resources (with pod CIDR)
+  ansible.builtin.template:
+    src: calico-custom-resources.yaml.j2
+    dest: /tmp/calico-custom-resources.yaml
+    mode: "0644"
+  when: calico_ns.rc != 0
+
+- name: Apply Calico custom resources
+  ansible.builtin.command: kubectl apply -f /tmp/calico-custom-resources.yaml
+  become: false
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  when: calico_ns.rc != 0
+
+- name: Wait for control-plane node to be Ready
+  ansible.builtin.command: >
+    kubectl wait node k8s-master
+    --for=condition=Ready
+    --timeout=180s
+  become: false
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: node_ready
+  retries: 6
+  delay: 30
+  until: node_ready.rc == 0
+
+# ---- 4. Generate join command for workers ------------------
+- name: Generate kubeadm join token
+  ansible.builtin.command: kubeadm token create --print-join-command
+  register: join_command_raw
+  changed_when: false
+
+- name: Store join command in a fact
+  ansible.builtin.set_fact:
+    join_command: "{{ join_command_raw.stdout }}"
+
+- name: Save join command to a file on master
+  ansible.builtin.copy:
+    content: "{{ join_command }}"
+    dest: /tmp/kubeadm_join_command
+    mode: "0600"
+
+- name: Fetch join command to Ansible controller
+  ansible.builtin.fetch:
+    src: /tmp/kubeadm_join_command
+    dest: /tmp/kubeadm_join_command
+    flat: true
