@@ -106,8 +106,8 @@
 
 - name: Generate default containerd config
   ansible.builtin.shell: containerd config default > /etc/containerd/config.toml
-  args:
-    creates: /etc/containerd/config.toml
+  changed_when: true
+  notify: Restart containerd
 
 - name: Set SystemdCgroup = true in containerd config
   ansible.builtin.replace:
@@ -121,6 +121,9 @@
     name: containerd
     enabled: true
     state: started
+
+- name: Flush handlers to restart containerd before kubeadm
+  ansible.builtin.meta: flush_handlers
 
 # ---- 5. kubeadm / kubelet / kubectl ------------------------
 - name: Add Kubernetes GPG key
