@@ -81,7 +81,7 @@
   when: calico_ns.rc != 0
 
 - name: Apply Calico operator
-  ansible.builtin.command: kubectl apply --server-side -f /tmp/tigera-operator.yaml
+  ansible.builtin.command: kubectl apply --server-side --force-conflicts -f /tmp/tigera-operator.yaml
   become: false
   environment:
     KUBECONFIG: /home/vagrant/.kube/config
