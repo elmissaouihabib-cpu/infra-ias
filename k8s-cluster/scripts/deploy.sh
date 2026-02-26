@@ -74,10 +74,7 @@ fi
 
 # ---- 5. Collections Ansible ---------------------------------
 info "Installation des collections Ansible..."
-ansible-galaxy collection install \
-  community.general \
-  ansible.posix \
-  --upgrade -r requirements.yml
+ansible-galaxy collection install -r requirements.yml --upgrade
 
 # ---- 6. Démarrage des VMs Vagrant --------------------------
 info "Démarrage des VMs Vagrant (master + 2 workers)..."
