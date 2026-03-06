@@ -114,7 +114,21 @@
   delay: 30
   until: node_ready.rc == 0
 
-# ---- 4. Generate join command for workers ------------------
+# ---- 4. Remove control-plane taint (make master schedulable) ----
+- name: Remove NoSchedule taint from control-plane node
+  ansible.builtin.command: >
+    kubectl taint nodes k8s-master
+    node-role.kubernetes.io/control-plane:NoSchedule-
+  become: false
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: taint_remove
+  failed_when:
+    - taint_remove.rc != 0
+    - '"not found" not in taint_remove.stderr'
+  changed_when: taint_remove.rc == 0
+
+# ---- 5. Generate join command for workers ------------------
 - name: Generate kubeadm join token
   ansible.builtin.command: kubeadm token create --print-join-command
   register: join_command_raw
