@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # ============================================================
-# deploy.sh - One-shot deploy of the Kubernetes cluster
-# Système hôte : Ubuntu
+# deploy.sh - Deploy the Kubernetes cluster
+# Architecture: Master on host machine | Workers in Vagrant VMs
+#
 # Usage: ./scripts/deploy.sh
+#
+# Prerequisites (host machine = Ubuntu):
+#   - VirtualBox installed
+#   - Vagrant installed
+#   - Ansible installed
+#   - sudo privileges (for master k8s setup)
+#   - VirtualBox host-only adapter on 192.168.56.1
 # ============================================================
 set -euo pipefail
 
@@ -76,19 +84,46 @@ fi
 info "Installation des collections Ansible..."
 ansible-galaxy collection install -r requirements.yml --upgrade
 
-# ---- 6. Démarrage des VMs Vagrant --------------------------
-info "Démarrage des VMs Vagrant (master + 2 workers)..."
-vagrant up --parallel
+# ---- 6. Vérification interface host-only VirtualBox ---------
+info "Vérification de l'interface host-only VirtualBox (192.168.56.1)..."
+if ! ip addr show | grep -q "192.168.56.1"; then
+  warn "Interface 192.168.56.1 non trouvée."
+  warn "Créez le réseau host-only dans VirtualBox (Fichier > Gestionnaire de réseau hôte)"
+  warn "avec l'adresse 192.168.56.1/24, puis relancez ce script."
+  exit 1
+fi
+info "Interface host-only détectée sur 192.168.56.1"
+
+# ---- 7. Phase 1 : Provisionner le master (machine hôte) -----
+info "Phase 1 : Installation de Kubernetes sur le master (machine hôte)..."
+info "Le mot de passe sudo sera demandé pour configurer le master localement."
+ansible-playbook \
+  -i inventory/hosts.ini \
+  playbooks/site.yml \
+  --limit masters \
+  -K
+
+# ---- 8. Phase 2 : Démarrer les VMs workers ------------------
+info "Phase 2 : Démarrage des VMs workers via Vagrant..."
+vagrant up --no-provision --parallel
+
+info "Attente de la disponibilité SSH des workers (30s)..."
+sleep 30
+
+# ---- 9. Phase 3 : Provisionner workers + vérification -------
+info "Phase 3 : Installation de Kubernetes sur les workers et jonction au cluster..."
+ansible-playbook \
+  -i inventory/hosts.ini \
+  playbooks/site.yml
 
 info "Cluster provisionné avec succès !"
 echo ""
 echo "============================================================"
 echo " Résumé du cluster :"
-echo "   Master   : 192.168.56.10  (k8s-master)"
-echo "   Worker 1 : 192.168.56.11  (k8s-worker1)"
-echo "   Worker 2 : 192.168.56.12  (k8s-worker2)"
+echo "   Master   : 192.168.56.1   (machine hôte  - k8s-master)"
+echo "   Worker 1 : 192.168.56.11  (Vagrant VM     - k8s-worker1)"
+echo "   Worker 2 : 192.168.56.12  (Vagrant VM     - k8s-worker2)"
 echo ""
-echo " Se connecter au master :"
-echo "   vagrant ssh k8s-master"
+echo " Accès kubectl (depuis le host) :"
 echo "   kubectl get nodes -o wide"
 echo "============================================================"
