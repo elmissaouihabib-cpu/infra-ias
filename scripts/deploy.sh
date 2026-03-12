@@ -84,13 +84,32 @@ fi
 info "Installation des collections Ansible..."
 ansible-galaxy collection install -r requirements.yml --upgrade
 
-# ---- 6. Vérification interface host-only VirtualBox ---------
+# ---- 6. Interface host-only VirtualBox (192.168.56.1) -------
 info "Vérification de l'interface host-only VirtualBox (192.168.56.1)..."
 if ! ip addr show | grep -q "192.168.56.1"; then
-  warn "Interface 192.168.56.1 non trouvée."
-  warn "Créez le réseau host-only dans VirtualBox (Fichier > Gestionnaire de réseau hôte)"
-  warn "avec l'adresse 192.168.56.1/24, puis relancez ce script."
-  exit 1
+  warn "Interface 192.168.56.1 non trouvée – création en cours..."
+
+  # Créer un nouvel adaptateur host-only et récupérer son nom (ex: vboxnet0)
+  IFACE=$(VBoxManage hostonlyif create 2>&1 | grep -oP "(?<=Interface ').*(?=')")
+  if [[ -z "$IFACE" ]]; then
+    error "Impossible de créer l'interface host-only VirtualBox."
+  fi
+  info "Adaptateur créé : $IFACE"
+
+  # Configurer l'IP 192.168.56.1/24
+  VBoxManage hostonlyif ipconfig "$IFACE" \
+    --ip 192.168.56.1 \
+    --netmask 255.255.255.0
+  info "IP 192.168.56.1/24 configurée sur $IFACE"
+
+  # Activer le serveur DHCP désactivé (on utilise des IPs statiques)
+  VBoxManage dhcpserver remove --ifname "$IFACE" 2>/dev/null || true
+
+  # Attendre que le kernel monte l'interface
+  sleep 2
+  if ! ip addr show | grep -q "192.168.56.1"; then
+    error "Interface créée mais IP 192.168.56.1 toujours absente. Vérifiez VirtualBox."
+  fi
 fi
 info "Interface host-only détectée sur 192.168.56.1"
 
