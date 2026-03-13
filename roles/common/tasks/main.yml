@@ -104,16 +104,13 @@
     state: directory
     mode: "0755"
 
-- name: Generate default containerd config
-  ansible.builtin.shell: containerd config default > /etc/containerd/config.toml
-  changed_when: true
-  notify: Restart containerd
-
-- name: Set SystemdCgroup = true in containerd config
-  ansible.builtin.replace:
-    path: /etc/containerd/config.toml
-    regexp: 'SystemdCgroup = false'
-    replace: 'SystemdCgroup = true'
+- name: Deploy containerd config (SystemdCgroup enabled)
+  ansible.builtin.template:
+    src: containerd-config.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: "0644"
   notify: Restart containerd
 
 - name: Enable and start containerd
