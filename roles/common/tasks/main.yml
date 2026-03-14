@@ -9,6 +9,16 @@
 #   5. Install kubeadm, kubelet, kubectl
 # ============================================================
 
+# ---- 0. Wait for apt lock (unattended-upgrades on fresh VMs) ----
+- name: Wait for apt lock to be released
+  ansible.builtin.shell: |
+    for i in $(seq 1 24); do
+      fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1 || break
+      echo "apt locked, waiting 5s... ($i/24)"
+      sleep 5
+    done
+  changed_when: false
+
 # ---- 1. System prerequisites --------------------------------
 - name: Update apt cache
   ansible.builtin.apt:

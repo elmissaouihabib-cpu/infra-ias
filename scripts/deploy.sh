@@ -134,8 +134,9 @@ ansible-playbook \
 info "Phase 2 : Démarrage des VMs workers via Vagrant..."
 vagrant up --no-provision --parallel
 
-info "Attente de la disponibilité SSH des workers (30s)..."
-sleep 30
+info "Attente de la disponibilité SSH des workers..."
+vagrant ssh k8s-worker1 -c "echo ok" -- -o StrictHostKeyChecking=no
+vagrant ssh k8s-worker2 -c "echo ok" -- -o StrictHostKeyChecking=no
 
 # ---- 9. Phase 3 : Provisionner workers + vérification -------
 info "Phase 3 : Installation de Kubernetes sur les workers et jonction au cluster..."

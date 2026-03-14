@@ -7,6 +7,13 @@
 #   3. Verify node registration
 # ============================================================
 
+# ---- 0. Pre-flight check ------------------------------------
+- name: Verify kubeadm is installed on worker
+  ansible.builtin.command: kubeadm version
+  register: kubeadm_check
+  changed_when: false
+  failed_when: kubeadm_check.rc != 0
+
 # ---- 1. Load join command -----------------------------------
 - name: Read join command from controller
   ansible.builtin.set_fact:
