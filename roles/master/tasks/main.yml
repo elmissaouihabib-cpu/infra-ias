@@ -16,10 +16,26 @@
     kube_home: "/home/{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
 
 # ---- 1. kubeadm init ----------------------------------------
-- name: Check if cluster is already initialized
+- name: Check if admin.conf exists (previous init)
   ansible.builtin.stat:
     path: /etc/kubernetes/admin.conf
   register: kubeadm_init_done
+
+- name: Check if kube-apiserver is actually responding
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 6443
+    timeout: 10
+  register: api_check
+  failed_when: false
+  changed_when: false
+  when: kubeadm_init_done.stat.exists
+
+- name: Reset broken cluster (admin.conf present but API unreachable)
+  ansible.builtin.command: kubeadm reset --force
+  when:
+    - kubeadm_init_done.stat.exists
+    - api_check.failed | default(false)
 
 - name: Initialize Kubernetes control plane
   ansible.builtin.command: >
@@ -30,8 +46,17 @@
     --service-cidr={{ service_cidr }}
     --node-name=k8s-master
     --ignore-preflight-errors=NumCPU,Mem
-  when: not kubeadm_init_done.stat.exists
+  when: >
+    not kubeadm_init_done.stat.exists or
+    (api_check.failed | default(false))
   register: kubeadm_init_output
+
+- name: Wait for kube-apiserver to be ready after init
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 6443
+    timeout: 120
+  when: kubeadm_init_output is changed
 
 # ---- 2. Configure kubectl -----------------------------------
 - name: Create .kube directory for {{ kube_user }}
@@ -79,13 +104,6 @@
   register: calico_ns
   failed_when: false
   changed_when: false
-
-- name: Wait for kube-apiserver to accept connections
-  ansible.builtin.wait_for:
-    host: 127.0.0.1
-    port: 6443
-    timeout: 120
-  when: calico_ns.rc != 0
 
 - name: Download Calico operator manifest
   ansible.builtin.get_url:
