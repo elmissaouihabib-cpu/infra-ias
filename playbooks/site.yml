@@ -46,15 +46,19 @@
 - name: Verify cluster status
   hosts: masters
   become: false
-  gather_facts: false
+  gather_facts: true
   tasks:
+    - name: Resolve kubeconfig path for current user
+      ansible.builtin.set_fact:
+        kubeconfig: "/home/{{ ansible_env.SUDO_USER | default(ansible_user_id) }}/.kube/config"
+
     - name: Wait for all nodes to become Ready
       ansible.builtin.command: >
         kubectl wait nodes --all
         --for=condition=Ready
         --timeout=300s
       environment:
-        KUBECONFIG: /home/vagrant/.kube/config
+        KUBECONFIG: "{{ kubeconfig }}"
       register: nodes_ready
       retries: 10
       delay: 30
@@ -63,7 +67,7 @@
     - name: Show cluster node status
       ansible.builtin.command: kubectl get nodes -o wide
       environment:
-        KUBECONFIG: /home/vagrant/.kube/config
+        KUBECONFIG: "{{ kubeconfig }}"
       register: node_list
       changed_when: false
 
@@ -74,7 +78,7 @@
     - name: Show running system pods
       ansible.builtin.command: kubectl get pods -n kube-system
       environment:
-        KUBECONFIG: /home/vagrant/.kube/config
+        KUBECONFIG: "{{ kubeconfig }}"
       register: system_pods
       changed_when: false
 

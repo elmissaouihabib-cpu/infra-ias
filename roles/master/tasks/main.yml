@@ -3,10 +3,17 @@
 # Master Role - Applied to the control-plane node only
 # Steps:
 #   1. kubeadm init
-#   2. Configure kubectl for vagrant user & root
+#   2. Configure kubectl for the real user & root
 #   3. Deploy Calico CNI
-#   4. Generate and store join command for workers
+#   4. Remove control-plane taint (make master schedulable)
+#   5. Generate and store join command for workers
 # ============================================================
+
+# Determine the real (non-root) user even when become: true
+- name: Set kube user facts
+  ansible.builtin.set_fact:
+    kube_user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
+    kube_home: "/home/{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
 
 # ---- 1. kubeadm init ----------------------------------------
 - name: Check if cluster is already initialized
@@ -27,21 +34,21 @@
   register: kubeadm_init_output
 
 # ---- 2. Configure kubectl -----------------------------------
-- name: Create .kube directory for vagrant user
+- name: Create .kube directory for {{ kube_user }}
   ansible.builtin.file:
-    path: /home/vagrant/.kube
+    path: "{{ kube_home }}/.kube"
     state: directory
-    owner: vagrant
-    group: vagrant
+    owner: "{{ kube_user }}"
+    group: "{{ kube_user }}"
     mode: "0755"
 
-- name: Copy admin.conf to vagrant user's .kube/config
+- name: Copy admin.conf to {{ kube_user }}'s .kube/config
   ansible.builtin.copy:
     src: /etc/kubernetes/admin.conf
-    dest: /home/vagrant/.kube/config
+    dest: "{{ kube_home }}/.kube/config"
     remote_src: true
-    owner: vagrant
-    group: vagrant
+    owner: "{{ kube_user }}"
+    group: "{{ kube_user }}"
     mode: "0600"
 
 - name: Create .kube directory for root
@@ -57,10 +64,10 @@
     remote_src: true
     mode: "0600"
 
-- name: Set KUBECONFIG in vagrant user's .bashrc
+- name: Set KUBECONFIG in {{ kube_user }}'s .bashrc
   ansible.builtin.lineinfile:
-    path: /home/vagrant/.bashrc
-    line: "export KUBECONFIG=/home/vagrant/.kube/config"
+    path: "{{ kube_home }}/.bashrc"
+    line: "export KUBECONFIG={{ kube_home }}/.kube/config"
     state: present
 
 # ---- 3. Deploy Calico CNI ----------------------------------
@@ -68,7 +75,7 @@
   ansible.builtin.command: kubectl get ns calico-system
   become: false
   environment:
-    KUBECONFIG: /home/vagrant/.kube/config
+    KUBECONFIG: "{{ kube_home }}/.kube/config"
   register: calico_ns
   failed_when: false
   changed_when: false
@@ -84,7 +91,7 @@
   ansible.builtin.command: kubectl apply --server-side --force-conflicts -f /tmp/tigera-operator.yaml
   become: false
   environment:
-    KUBECONFIG: /home/vagrant/.kube/config
+    KUBECONFIG: "{{ kube_home }}/.kube/config"
   when: calico_ns.rc != 0
 
 - name: Deploy Calico custom resources (with pod CIDR)
@@ -98,7 +105,7 @@
   ansible.builtin.command: kubectl apply --server-side -f /tmp/calico-custom-resources.yaml
   become: false
   environment:
-    KUBECONFIG: /home/vagrant/.kube/config
+    KUBECONFIG: "{{ kube_home }}/.kube/config"
   when: calico_ns.rc != 0
 
 - name: Wait for control-plane node to be Ready
@@ -108,7 +115,7 @@
     --timeout=180s
   become: false
   environment:
-    KUBECONFIG: /home/vagrant/.kube/config
+    KUBECONFIG: "{{ kube_home }}/.kube/config"
   register: node_ready
   retries: 6
   delay: 30
@@ -121,7 +128,7 @@
     node-role.kubernetes.io/control-plane:NoSchedule-
   become: false
   environment:
-    KUBECONFIG: /home/vagrant/.kube/config
+    KUBECONFIG: "{{ kube_home }}/.kube/config"
   register: taint_remove
   failed_when:
     - taint_remove.rc != 0
