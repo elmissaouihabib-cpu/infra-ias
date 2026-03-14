@@ -51,11 +51,15 @@
     (api_check.failed | default(false))
   register: kubeadm_init_output
 
-- name: Wait for kube-apiserver to be ready after init
-  ansible.builtin.wait_for:
-    host: 127.0.0.1
-    port: 6443
-    timeout: 120
+- name: Wait for kube-apiserver to be fully functional after init
+  ansible.builtin.command: kubectl cluster-info
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cluster_info_check
+  retries: 18
+  delay: 10
+  until: cluster_info_check.rc == 0
+  changed_when: false
   when: kubeadm_init_output is changed
 
 # ---- 2. Configure kubectl -----------------------------------
@@ -96,6 +100,16 @@
     state: present
 
 # ---- 3. Deploy Calico CNI ----------------------------------
+- name: Ensure kube-apiserver is functional before Calico deployment
+  ansible.builtin.command: kubectl cluster-info
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: api_functional
+  retries: 18
+  delay: 10
+  until: api_functional.rc == 0
+  changed_when: false
+
 - name: Check if Calico is already deployed
   ansible.builtin.command: kubectl get ns calico-system
   become: false
