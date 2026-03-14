@@ -25,6 +25,14 @@ info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
+# ---- 0. Mise à jour du dépôt --------------------------------
+if git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+  info "Mise à jour du dépôt git..."
+  git -C "$PROJECT_DIR" pull --ff-only || warn "git pull impossible (modifications locales ?), on continue."
+else
+  warn "Répertoire non géré par git, pas de mise à jour automatique."
+fi
+
 # ---- 1. VirtualBox ------------------------------------------
 install_virtualbox() {
   info "Installation de VirtualBox..."

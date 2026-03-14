@@ -1,23 +1,24 @@
 ---
-- name: Restart containerd
-  block:
-    - name: Stop containerd
-      ansible.builtin.systemd:
-        name: containerd
-        state: stopped
+- name: Stop containerd
+  ansible.builtin.systemd:
+    name: containerd
+    state: stopped
+  listen: "Restart containerd"
 
-    - name: Reload systemd daemon
-      ansible.builtin.systemd:
-        daemon_reload: true
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  listen: "Restart containerd"
 
-    - name: Start containerd
-      ansible.builtin.systemd:
-        name: containerd
-        state: started
-        enabled: true
+- name: Start containerd
+  ansible.builtin.systemd:
+    name: containerd
+    state: started
+    enabled: true
+  listen: "Restart containerd"
 
-    - name: Wait for containerd socket
-      ansible.builtin.wait_for:
-        path: /run/containerd/containerd.sock
-        timeout: 30
+- name: Wait for containerd socket
+  ansible.builtin.wait_for:
+    path: /run/containerd/containerd.sock
+    timeout: 30
   listen: "Restart containerd"
