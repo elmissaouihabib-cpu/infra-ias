@@ -110,13 +110,16 @@ if ! ip addr show | grep -q "192.168.56.1"; then
     --netmask 255.255.255.0
   info "IP 192.168.56.1/24 configurée sur $IFACE"
 
-  # Activer le serveur DHCP désactivé (on utilise des IPs statiques)
+  # Supprimer le serveur DHCP automatique (on utilise des IPs statiques)
   VBoxManage dhcpserver remove --ifname "$IFACE" 2>/dev/null || true
 
-  # Attendre que le kernel monte l'interface
-  sleep 2
+  # Monter l'interface au niveau kernel et lui assigner l'IP
+  sudo ip link set "$IFACE" up
+  sudo ip addr add 192.168.56.1/24 dev "$IFACE" 2>/dev/null || true
+  sleep 1
+
   if ! ip addr show | grep -q "192.168.56.1"; then
-    error "Interface créée mais IP 192.168.56.1 toujours absente. Vérifiez VirtualBox."
+    error "Impossible d'assigner 192.168.56.1 sur $IFACE. Vérifiez VirtualBox."
   fi
 fi
 info "Interface host-only détectée sur 192.168.56.1"
