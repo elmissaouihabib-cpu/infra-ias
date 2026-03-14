@@ -80,6 +80,13 @@
   failed_when: false
   changed_when: false
 
+- name: Wait for kube-apiserver to accept connections
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 6443
+    timeout: 120
+  when: calico_ns.rc != 0
+
 - name: Download Calico operator manifest
   ansible.builtin.get_url:
     url: https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/tigera-operator.yaml
