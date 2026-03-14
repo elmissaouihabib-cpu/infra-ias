@@ -94,35 +94,40 @@ ansible-galaxy collection install -r requirements.yml --upgrade
 
 # ---- 6. Interface host-only VirtualBox (192.168.56.1) -------
 info "Vérification de l'interface host-only VirtualBox (192.168.56.1)..."
-if ! ip addr show | grep -q "192.168.56.1"; then
-  warn "Interface 192.168.56.1 non trouvée – création en cours..."
 
-  # Créer un nouvel adaptateur host-only et récupérer son nom (ex: vboxnet0)
+# Chercher une interface VirtualBox déjà configurée à 192.168.56.1
+IFACE=$(VBoxManage list hostonlyifs 2>/dev/null \
+  | awk '/^Name:/{iface=$2} /IPAddress:.*192\.168\.56\.1/{print iface; exit}')
+
+if [[ -z "$IFACE" ]]; then
+  warn "Aucun adaptateur host-only à 192.168.56.1 – création en cours..."
   IFACE=$(VBoxManage hostonlyif create 2>&1 | grep -oP "(?<=Interface ').*(?=')")
-  if [[ -z "$IFACE" ]]; then
-    error "Impossible de créer l'interface host-only VirtualBox."
-  fi
-  info "Adaptateur créé : $IFACE"
-
-  # Configurer l'IP 192.168.56.1/24
-  VBoxManage hostonlyif ipconfig "$IFACE" \
-    --ip 192.168.56.1 \
-    --netmask 255.255.255.0
-  info "IP 192.168.56.1/24 configurée sur $IFACE"
-
-  # Supprimer le serveur DHCP automatique (on utilise des IPs statiques)
+  [[ -z "$IFACE" ]] && error "Impossible de créer l'interface host-only VirtualBox."
+  VBoxManage hostonlyif ipconfig "$IFACE" --ip 192.168.56.1 --netmask 255.255.255.0
   VBoxManage dhcpserver remove --ifname "$IFACE" 2>/dev/null || true
-
-  # Monter l'interface au niveau kernel et lui assigner l'IP
-  sudo ip link set "$IFACE" up
-  sudo ip addr add 192.168.56.1/24 dev "$IFACE" 2>/dev/null || true
-  sleep 1
-
-  if ! ip addr show | grep -q "192.168.56.1"; then
-    error "Impossible d'assigner 192.168.56.1 sur $IFACE. Vérifiez VirtualBox."
-  fi
+  info "Adaptateur VirtualBox créé : $IFACE (192.168.56.1/24)"
+else
+  info "Adaptateur VirtualBox existant : $IFACE"
 fi
-info "Interface host-only détectée sur 192.168.56.1"
+
+# Charger le module kernel si absent
+modprobe vboxnetadp 2>/dev/null || true
+
+# Attendre que l'interface apparaisse dans le kernel (max 10s)
+for i in $(seq 1 10); do
+  ip link show "$IFACE" &>/dev/null && break
+  sleep 1
+done
+
+# Monter l'interface et assigner l'IP si pas déjà présente
+ip link set "$IFACE" up 2>/dev/null || true
+ip addr show dev "$IFACE" | grep -q "192.168.56.1" \
+  || ip addr add 192.168.56.1/24 dev "$IFACE"
+
+if ! ip addr show | grep -q "192.168.56.1"; then
+  error "Impossible d'assigner 192.168.56.1 sur $IFACE."
+fi
+info "Interface host-only active : $IFACE (192.168.56.1/24)"
 
 # ---- 7. Phase 1 : Provisionner le master (machine hôte) -----
 info "Phase 1 : Installation de Kubernetes sur le master (machine hôte)..."
